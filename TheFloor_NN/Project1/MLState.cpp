@@ -1,23 +1,77 @@
 #include "MLState.h"
 
+#include <cerrno>
 #include <cstdlib>
-#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <string>
 
+#ifdef _WIN32
+#include <direct.h>
+#else
+#include <sys/stat.h>
+#include <sys/types.h>
+#endif
+
 namespace
 {
-    std::filesystem::path GetReplayPath()
+    std::string GetReplayPath()
     {
         const char* configuredPath = std::getenv("THE_FLOOR_REPLAY_PATH");
 
         if (configuredPath != nullptr && configuredPath[0] != '\0')
         {
-            return std::filesystem::path(configuredPath);
+            return std::string(configuredPath);
         }
 
-        return std::filesystem::path("ml") / "replay_buffer.csv";
+        return "ml/replay_buffer.csv";
+    }
+
+    std::string GetParentDirectory(const std::string& filePath)
+    {
+        std::size_t slashPos = filePath.find_last_of("/\\");
+        if (slashPos == std::string::npos)
+        {
+            return "";
+        }
+
+        return filePath.substr(0, slashPos);
+    }
+
+    bool CreateDirectorySingle(const std::string& directoryPath)
+    {
+#ifdef _WIN32
+        int result = _mkdir(directoryPath.c_str());
+#else
+        int result = mkdir(directoryPath.c_str(), 0755);
+#endif
+
+        return result == 0 || errno == EEXIST;
+    }
+
+    bool DirectoryExistsOrCreate(const std::string& directoryPath)
+    {
+        if (directoryPath.empty())
+        {
+            return true;
+        }
+
+        std::string current;
+        for (std::size_t i = 0; i < directoryPath.size(); ++i)
+        {
+            char ch = directoryPath[i];
+            current.push_back(ch);
+
+            if ((ch == '/' || ch == '\\') && !current.empty())
+            {
+                if (!CreateDirectorySingle(current))
+                {
+                    return false;
+                }
+            }
+        }
+
+        return CreateDirectorySingle(directoryPath);
     }
 
     std::ofstream& GetReplayStream()
@@ -29,31 +83,25 @@ namespace
         {
             initialized = true;
 
-            std::filesystem::path replayPath = GetReplayPath();
-            std::error_code err;
+            std::string replayPath = GetReplayPath();
+            std::string replayDir = GetParentDirectory(replayPath);
 
-            if (replayPath.has_parent_path())
+            if (!DirectoryExistsOrCreate(replayDir))
             {
-                std::filesystem::create_directories(replayPath.parent_path(), err);
-                if (err)
-                {
-                    std::cerr << "[MLLogger] Failed to create directory '"
-                              << replayPath.parent_path().string() << "': "
-                              << err.message() << "\n";
-                }
+                std::cerr << "[MLLogger] Failed to create directory '" << replayDir << "'\n";
             }
 
-            file.open(replayPath, std::ios::app);
+            file.open(replayPath.c_str(), std::ios::app);
 
             if (!file.is_open())
             {
                 std::cerr << "[MLLogger] Failed to open replay log file: "
-                          << replayPath.string() << "\n";
+                          << replayPath << "\n";
             }
             else
             {
                 std::cout << "[MLLogger] Writing replay data to: "
-                          << std::filesystem::absolute(replayPath).string() << "\n";
+                          << replayPath << "\n";
             }
         }
 
