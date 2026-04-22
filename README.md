@@ -36,7 +36,7 @@ export THE_FLOOR_REPLAY_PATH=/absolute/path/to/replay_buffer.csv
 $env:THE_FLOOR_REPLAY_PATH = "C:\path\to\replay_buffer.csv"
 ```
 
-The logger now prints the exact path it writes to on startup so you can confirm it immediately.
+The logger now prints the full path it writes to on startup so you can confirm it immediately.
 
 
 ## 2) Train the neural net
