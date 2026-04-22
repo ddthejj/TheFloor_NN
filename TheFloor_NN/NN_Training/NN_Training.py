@@ -14,7 +14,13 @@ DEFAULT_MODEL_PATH = Path("model/floor_ai.keras")
 
 def load_replay_buffer(csv_path: Path):
     """Load and split replay buffer rows into (s, a, r, done, s')."""
-    data = np.loadtxt(csv_path, delimiter=",", ndmin=2)
+    skip_rows = 0
+    with csv_path.open("r", encoding="utf-8") as csv_file:
+        first_line = csv_file.readline().strip()
+        if first_line and any(ch.isalpha() for ch in first_line):
+            skip_rows = 1
+
+    data = np.loadtxt(csv_path, delimiter=",", ndmin=2, skiprows=skip_rows)
 
     if data.shape[1] < INPUT_SIZE + 3:
         raise ValueError(
