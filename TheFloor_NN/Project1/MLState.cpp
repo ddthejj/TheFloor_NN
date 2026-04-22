@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <fstream>
 #include <iostream>
+#include <sstream>
 #include <string>
 
 #ifdef _WIN32
@@ -100,6 +101,30 @@ namespace
             }
             else
             {
+                bool hasExistingRows = false;
+                std::ifstream existingFile(replayPath.c_str());
+                if (existingFile.good())
+                {
+                    hasExistingRows = existingFile.peek() != std::ifstream::traits_type::eof();
+                }
+
+                if (!hasExistingRows)
+                {
+                    std::ostringstream header;
+
+                    for (int neighborIndex = 0; neighborIndex < MAX_NEIGHBORS; ++neighborIndex)
+                    {
+                        header << "neighbor_" << neighborIndex << "_myPower,";
+                        header << "neighbor_" << neighborIndex << "_enemySpeed,";
+                        header << "neighbor_" << neighborIndex << "_mySize,";
+                        header << "neighbor_" << neighborIndex << "_enemySize,";
+                    }
+
+                    header << "action,reward,done\n";
+                    file << header.str();
+                    file.flush();
+                }
+
                 std::cout << "[MLLogger] Writing replay data to: "
                           << replayPath << "\n";
             }
