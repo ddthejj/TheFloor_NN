@@ -1,5 +1,6 @@
 #include "Tile.h"
 
+#include <algorithm>
 #include <cstdlib>
 
 Tile::Tile(int _category, int numCategories) : category(_category), player(_category, numCategories)
@@ -99,11 +100,20 @@ MLState Tile::GetMLState()
 	for (Tile* neighbor : neighbors)
 	{
 		NeighborState neighborState;
+		const int battleCategory = neighbor->GetCategory();
+		const float myBattlePower = GetPower(battleCategory);
 
-		neighborState.myPower = GetPower(neighbor->GetCategory());
+		neighborState.myPower = myBattlePower;
 		neighborState.enemySpeed = neighbor->hasPlayed ? neighbor->GetPlayer()->GetSpeed() : -10;
 		neighborState.mySize = size;
 		neighborState.enemySize = neighbor->size;
+		neighborState.isChallengeable = 0.0f;
+
+		if (neighbor->hasPlayed)
+		{
+			const float enemyBattlePower = neighbor->GetPower(battleCategory);
+			neighborState.isChallengeable = myBattlePower >= enemyBattlePower ? 1.0f : 0.0f;
+		}
 
 		state.neighbors.push_back(neighborState);
 	}

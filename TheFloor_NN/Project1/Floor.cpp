@@ -96,11 +96,13 @@ void Floor::Step()
 	std::cout << "BATTLE " << currentBattle << ": " << attackerTile->GetPlayer()->GetOriginalCategory() << " VS " << defenderTile->GetPlayer()->GetOriginalCategory() << " IN " << category << '\n';
 
 	Tile* winnerTile = nullptr;
+	bool attackerWon = false;
 
 	if (randomValue < attackerWinChance)
 	{
 		// attacker wins
  		winnerTile = attackerTile;
+		attackerWon = true;
 
 		attackerTile->WinBattle(true, defenderTile);
 		defenderTile->LoseBattle();
@@ -128,16 +130,34 @@ void Floor::Step()
 	{
 		currentPlayer = winnerTile;
 		std::cout << "STAY AND PLAY\n";
-
-		attackerTile->ResolveDecision(.05f, false);
 	}
 	else
 	{
 		currentPlayer = nullptr;
 		std::cout << "BACK TO THE FLOOR\n";
-
-		attackerTile->ResolveDecision(-.5f, false);
 	}
+
+	float reward = 0.0f;
+	bool done = false;
+
+	if (!attackerWon)
+	{
+		// Losing the battle usually means this tile is eliminated, so end this decision path strongly negative.
+		reward = -1.0f;
+		done = true;
+	}
+	else if (currentPlayer == winnerTile)
+	{
+		// Winning and retaining control is good but should stay modest compared to terminal reward.
+		reward = 0.20f;
+	}
+	else
+	{
+		// Winning but returning to randomizer is still positive.
+		reward = 0.05f;
+	}
+
+	attackerTile->ResolveDecision(reward, done);
 
 	currentBattle++;
 }

@@ -145,6 +145,7 @@ namespace
                         header << "neighbor_" << neighborIndex << "_enemySpeed,";
                         header << "neighbor_" << neighborIndex << "_mySize,";
                         header << "neighbor_" << neighborIndex << "_enemySize,";
+                        header << "neighbor_" << neighborIndex << "_isChallengeable,";
                     }
 
                     header << "action,reward,done\n";
@@ -194,6 +195,7 @@ std::array<float, FLAT_STATE_SIZE> MLState::Flatten()
         flat[index++] = neighbors[i].enemySpeed;
         flat[index++] = neighbors[i].mySize;
         flat[index++] = neighbors[i].enemySize;
+        flat[index++] = neighbors[i].isChallengeable;
     }
 
     return flat;
