@@ -4,7 +4,7 @@
 #include <array>
 
 static constexpr int MAX_NEIGHBORS = 50;
-static constexpr int FEATURES_PER_NEIGHBOR = 4;
+static constexpr int FEATURES_PER_NEIGHBOR = 5;
 static constexpr int FLAT_STATE_SIZE = MAX_NEIGHBORS * FEATURES_PER_NEIGHBOR;
 static constexpr int STAYGO_STATE_SIZE = 8;
 
@@ -14,6 +14,7 @@ struct NeighborState
 	float enemySpeed;
 	float mySize;
 	float enemySize;
+	float isChallengeable;
 };
 
 struct StayGoState
