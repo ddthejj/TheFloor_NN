@@ -40,6 +40,8 @@ void Tile::RemoveNeighbor(Tile* neighbor)
 
 Tile* Tile::ChooseNeighbor()
 {
+	hasPlayed = true;
+
 	// NEURAL NET OPTION
 	
 	//return neighbors[(std::rand() % neighbors.size())];
