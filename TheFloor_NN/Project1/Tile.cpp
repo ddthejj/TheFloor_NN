@@ -52,6 +52,8 @@ Tile* Tile::ChooseNeighbor()
 
 	StoreDecision(state, action);
 
+	neighbors[action]->hasPlayed = true;
+
 	return neighbors[action];
 }
 
