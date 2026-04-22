@@ -60,6 +60,7 @@ int Floor::PlayGame()
 		Step();
 	}
 
+	remainingTiles[0]->ResolveDecision(1.f, true);
 	return remainingTiles[0]->GetPlayer()->GetOriginalCategory();
 }
 
@@ -123,15 +124,19 @@ void Floor::Step()
 	// NEURAL NET OPTION
 	// back to the floor?
 	double newrandomValue = static_cast<double>(std::rand()) / RAND_MAX;
-	if (newrandomValue > .0005)
+	if (newrandomValue > .5)
 	{
 		currentPlayer = winnerTile;
 		std::cout << "STAY AND PLAY\n";
+
+		attackerTile->ResolveDecision(.05f, false);
 	}
 	else
 	{
 		currentPlayer = nullptr;
 		std::cout << "BACK TO THE FLOOR\n";
+
+		attackerTile->ResolveDecision(-.5f, false);
 	}
 
 	currentBattle++;

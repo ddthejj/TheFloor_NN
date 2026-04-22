@@ -1,30 +1,39 @@
-import tensorflow as tf
-print("TensorFlow version:", tf.__version__)
-
-from tensorflow.keras.models import Sequential
-from tensorflow.keras.layers import Dense
 import numpy as np
+import tensorflow as tf
+from tensorflow import keras
 
-# Define your problem's parameters (example: 2D grid, 4 actions)
-# You'll need to adjust this based on your game
-input_dim = 10  # Example input size (number of features, such as position, score, etc.)
-output_dim = 4  # Number of possible actions (e.g., up, down, left, right)
+MAX_NEIGHBORS = 50
+FEATURES = 4
+INPUT_SIZE = MAX_NEIGHBORS * FEATURES
 
-# Build the model
-model = Sequential()
-model.add(Dense(64, input_dim=input_dim, activation='relu'))  # Hidden layer
-model.add(Dense(64, activation='relu'))  # Another hidden layer
-model.add(Dense(output_dim, activation='softmax'))  # Output layer (probabilities of actions)
+data = np.loadtxt("replay_buffer.csv", delimiter=",")
 
-# Compile the model
-model.compile(loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy'])
+states = data[:, :INPUT_SIZE]
+actions = data[:, INPUT_SIZE].astype(int)
+rewards = data[:, INPUT_SIZE + 1]
+dones = data[:, INPUT_SIZE + 2]
 
-# Dummy input data (replace with your actual game states and corresponding actions)
-X_train = np.random.random((1000, input_dim))  # 1000 samples, 10 features
-y_train = np.random.randint(0, output_dim, 1000)  # Random action indices
+model = keras.Sequential([
+    keras.layers.Dense(256, activation='relu', input_shape=(INPUT_SIZE,)),
+    keras.layers.Dense(256, activation='relu'),
+    keras.layers.Dense(MAX_NEIGHBORS)
+])
 
-# Train the model
-model.fit(X_train, y_train, epochs=10, batch_size=32)
+model.compile(
+    optimizer=keras.optimizers.Adam(0.001),
+    loss="mse"
+)
 
-# Save the model
-model.save('floor_game_model.h5')
+gamma = 0.99
+
+for i in range(len(states) - 1):
+    target = rewards[i]
+    if not dones[i]:
+        target += gamma * np.max(model(states[i+1:i+2]))
+
+    q_vals = model(states[i:i+1]).numpy()
+    q_vals[0][actions[i]] = target
+
+    model.train_on_batch(states[i:i+1], q_vals)
+
+model.save("model/floor_ai")

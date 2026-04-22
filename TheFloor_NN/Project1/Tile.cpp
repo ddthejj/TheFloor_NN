@@ -41,7 +41,16 @@ void Tile::RemoveNeighbor(Tile* neighbor)
 Tile* Tile::ChooseNeighbor()
 {
 	// NEURAL NET OPTION
-	return neighbors[(std::rand() % neighbors.size())];
+	
+	//return neighbors[(std::rand() % neighbors.size())];
+
+	MLState state = GetMLState();
+
+	int action = (std::rand() % neighbors.size());
+
+	StoreDecision(state, action);
+
+	return neighbors[action];
 }
 
 void Tile::WinBattle(bool wasAttacker, Tile* loserTile)
@@ -59,6 +68,8 @@ void Tile::WinBattle(bool wasAttacker, Tile* loserTile)
 	{
 		AddNeighbor(loserTile->neighbors[i]);
 	}
+
+	size++;
 }
 
 void Tile::LoseBattle()
@@ -74,4 +85,51 @@ void Tile::LoseBattle()
 	}
 
 	neighbors.clear();
+	size = 0;
+}
+
+MLState Tile::GetMLState()
+{
+	MLState state;
+
+	for (Tile* neighbor : neighbors)
+	{
+		NeighborState neighborState;
+
+		neighborState.myPower = GetPower(neighbor->GetCategory());
+		neighborState.enemySpeed = neighbor->hasPlayed ? neighbor->GetPlayer()->GetSpeed() : -10;
+		neighborState.mySize = size;
+		neighborState.enemySize = neighbor->size;
+
+		state.neighbors.push_back(neighborState);
+	}
+
+	return state;
+}
+
+void Tile::StoreDecision(MLState& state, int action)
+{
+	lastState = state;
+	lastAction = action;
+	hasPendingDecision = true;
+}
+
+void Tile::ResolveDecision(float reward, bool done)
+{
+	if (!hasPendingDecision)
+	{
+		return;
+	}
+
+	MLLogger::Log(lastState, lastAction, reward, done);
+	hasPendingDecision = false;
+}
+
+StayGoState Tile::GetStayGoState()
+{
+	StayGoState state;
+
+	
+
+	return state;
 }

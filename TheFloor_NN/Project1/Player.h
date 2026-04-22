@@ -11,8 +11,6 @@ class Player
 	std::vector<int> skillLevels;
 	// overall speed at trivia
 	int speed;
-	// if this player has played before. If true, give the opponent knowledge of the opponent's speed when making decisions
-	bool hasPlayed = false;
 
 public:
 
