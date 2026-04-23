@@ -1,7 +1,72 @@
 #include "Tile.h"
 
 #include <algorithm>
+#include <array>
+#include <cstdio>
 #include <cstdlib>
+#include <sstream>
+#include <string>
+
+#ifdef _WIN32
+#define POPEN _popen
+#define PCLOSE _pclose
+#else
+#define POPEN popen
+#define PCLOSE pclose
+#endif
+
+namespace
+{
+	int PredictActionFromModel(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
+	{
+		const char* modelPath = std::getenv("THE_FLOOR_MODEL_PATH");
+		if (modelPath == nullptr || modelPath[0] == '\0')
+		{
+			return -1;
+		}
+
+		const char* normPath = std::getenv("THE_FLOOR_MODEL_NORM_PATH");
+
+		std::ostringstream stateBuilder;
+		for (int i = 0; i < FLAT_STATE_SIZE; ++i)
+		{
+			if (i > 0)
+			{
+				stateBuilder << ",";
+			}
+
+			stateBuilder << flatState[i];
+		}
+
+		std::ostringstream commandBuilder;
+		commandBuilder << "printf '%s' '" << stateBuilder.str() << "'"
+			<< " | python TheFloor_NN/NN_Training/predict_action.py"
+			<< " --model \"" << modelPath << "\"";
+		if (normPath != nullptr && normPath[0] != '\0')
+		{
+			commandBuilder << " --norm \"" << normPath << "\"";
+		}
+
+		commandBuilder
+			<< " --valid-count " << validNeighborCount;
+
+		FILE* process = POPEN(commandBuilder.str().c_str(), "r");
+		if (process == nullptr)
+		{
+			return -1;
+		}
+
+		char outputBuffer[64] = {};
+		if (std::fgets(outputBuffer, sizeof(outputBuffer), process) == nullptr)
+		{
+			PCLOSE(process);
+			return -1;
+		}
+
+		PCLOSE(process);
+		return std::atoi(outputBuffer);
+	}
+}
 
 Tile::Tile(int _category, int numCategories) : category(_category), player(_category, numCategories)
 {
@@ -43,13 +108,15 @@ Tile* Tile::ChooseNeighbor()
 {
 	hasPlayed = true;
 
-	// NEURAL NET OPTION
-	
-	//return neighbors[(std::rand() % neighbors.size())];
-
 	MLState state = GetMLState();
+	std::array<float, FLAT_STATE_SIZE> flatState = state.Flatten();
 
-	int action = (std::rand() % neighbors.size());
+	int action = PredictActionFromModel(flatState, static_cast<int>(neighbors.size()));
+
+	if (action < 0 || action >= static_cast<int>(neighbors.size()))
+	{
+		action = (std::rand() % neighbors.size());
+	}
 
 	StoreDecision(state, action);
 
