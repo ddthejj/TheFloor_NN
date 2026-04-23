@@ -3,12 +3,18 @@
 #include <cstdlib>
 #include <ctime>
 
-int main(int argc, char* argv[]) 
+static constexpr int TEST_GAMES = 10000;
+
+int main(int argc, char* argv[])
 {
 	// seed random with current time
 	std::srand(std::time({}));
 
 	// create the floor
-	Floor TheFloor(10, 10);
-	std::cout << "THE FLOOR WINNER:" << TheFloor.PlayGame();
-}	
+
+	for (int i = 0; i < TEST_GAMES; i++)
+	{
+		Floor TheFloor(10, 10);
+		std::cout << "THE FLOOR WINNER:" << TheFloor.PlayGame();
+	}
+}
