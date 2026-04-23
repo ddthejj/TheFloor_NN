@@ -81,4 +81,23 @@ If you're new to NN/RL, start simple:
 
 - Split a validation set from replay buffer and monitor validation loss.
 - Add a target network for more stable DQN training.
-- Export model predictions back into C++ policy selection.
+
+## 5) Let the trained model play the simulator
+
+The simulator can now query a trained model during `ChooseNeighbor()`.
+
+Set these environment variables before running the C++ simulator:
+
+- `THE_FLOOR_MODEL_PATH`: path to the trained `.keras` model.
+- `THE_FLOOR_MODEL_NORM_PATH` *(optional but recommended)*: path to the normalization JSON (`.norm.json`) saved during training.
+
+Example:
+
+```bash
+export THE_FLOOR_MODEL_PATH=/absolute/path/to/model/floor_ai.keras
+export THE_FLOOR_MODEL_NORM_PATH=/absolute/path/to/model/floor_ai.norm.json
+```
+
+If only `THE_FLOOR_MODEL_PATH` is set, the simulator still uses model inference (with raw, unnormalized features).
+
+If both variables are set, each move uses `TheFloor_NN/NN_Training/predict_action.py` with normalized features and chooses the best valid neighbor action. If prediction fails, the simulator falls back to random choice.
