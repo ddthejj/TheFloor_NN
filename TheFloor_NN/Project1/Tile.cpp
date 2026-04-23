@@ -4,7 +4,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
-#include <filesystem>
+#include <fstream>
 #include <sstream>
 #include <string>
 
@@ -22,13 +22,19 @@ namespace
 	constexpr const char* kModelPath = "TheFloor_NN/NN_Training/artifacts/model.keras";
 	constexpr const char* kNormPath = "TheFloor_NN/NN_Training/artifacts/norm.json";
 
+	bool FileExists(const char* filePath)
+	{
+		std::ifstream file(filePath);
+		return file.good();
+	}
+
 	int PredictActionFromModel(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
 	{
-		if (!std::filesystem::exists(kModelPath))
+		if (!FileExists(kModelPath))
 		{
 			return -1;
 		}
-		const bool hasNormFile = std::filesystem::exists(kNormPath);
+		const bool hasNormFile = FileExists(kNormPath);
 
 		std::ostringstream stateBuilder;
 		for (int i = 0; i < FLAT_STATE_SIZE; ++i)
