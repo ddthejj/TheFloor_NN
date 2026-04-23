@@ -15,6 +15,7 @@ int main(int argc, char* argv[])
 	for (int i = 0; i < TEST_GAMES; i++)
 	{
 		Floor TheFloor(10, 10);
-		std::cout << "THE FLOOR WINNER:" << TheFloor.PlayGame();
+		std::cout << "THE FLOOR WINNER:" << TheFloor.PlayGame() << "\n";
+		std::cout << "GAME " << i << " COMPLETE\n"; 
 	}
 }
