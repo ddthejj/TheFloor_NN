@@ -13,7 +13,7 @@ The C++ game logs transitions to:
 
 Each row is:
 
-- flattened state (`50 neighbors * 4 features = 200 floats`)
+- flattened state (`50 neighbors * 5 features = 250 floats`)
 - `action` (neighbor index chosen)
 - `reward`
 - `done` (`0` or `1`)
@@ -47,7 +47,11 @@ From repo root:
 python TheFloor_NN/NN_Training/NN_Training.py --data ml/replay_buffer.csv --out model/floor_ai.keras --epochs 20 --batch-size 256
 ```
 
-The script performs offline DQN-style fitted Q updates and prints loss per epoch.
+The script performs offline DQN-style fitted Q updates with:
+
+- z-normalized input features
+- a soft-updated target network
+- train/validation loss tracking per epoch
 
 ### Useful options
 
@@ -56,6 +60,8 @@ The script performs offline DQN-style fitted Q updates and prints loss per epoch
 - `--epochs`: number of passes over data
 - `--batch-size`: fit batch size
 - `--gamma`: discount factor
+- `--val-split`: holdout ratio for validation
+- `--target-update`: soft target-network update factor (tau)
 
 ## 3) Practical training advice
 
