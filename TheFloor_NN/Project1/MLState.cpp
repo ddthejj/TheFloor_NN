@@ -1,12 +1,10 @@
 #include "MLState.h"
 
 #include <cerrno>
-#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
 #include <string>
-#include <stdlib.h>
 
 #ifdef _WIN32
 #include <direct.h>
@@ -17,42 +15,9 @@
 
 namespace
 {
-    std::string GetEnvironmentVariableValue(const char* name)
-    {
-#ifdef _WIN32
-        char* buffer = nullptr;
-        std::size_t length = 0;
-
-        errno_t result = _dupenv_s(&buffer, &length, name);
-        if (result != 0 || buffer == nullptr)
-        {
-            return "";
-        }
-
-        std::string value(buffer);
-        std::free(buffer);
-        return value;
-#else
-        const char* value = std::getenv(name);
-        if (value == nullptr)
-        {
-            return "";
-        }
-
-        return std::string(value);
-#endif
-    }
-
     std::string GetReplayPath()
     {
-        std::string configuredPath = GetEnvironmentVariableValue("THE_FLOOR_REPLAY_PATH");
-
-        if (!configuredPath.empty())
-        {
-            return configuredPath;
-        }
-
-        return "ml/replay_buffer.csv";
+        return "TheFloor_NN/ml/replay_buffer.csv";
     }
 
     std::string GetParentDirectory(const std::string& filePath)

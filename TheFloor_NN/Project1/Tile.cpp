@@ -4,6 +4,7 @@
 #include <array>
 #include <cstdio>
 #include <cstdlib>
+#include <filesystem>
 #include <sstream>
 #include <string>
 
@@ -17,15 +18,17 @@
 
 namespace
 {
+	constexpr const char* kPredictScriptPath = "TheFloor_NN/NN_Training/predict_action.py";
+	constexpr const char* kModelPath = "TheFloor_NN/NN_Training/artifacts/model.keras";
+	constexpr const char* kNormPath = "TheFloor_NN/NN_Training/artifacts/norm.json";
+
 	int PredictActionFromModel(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
 	{
-		const char* modelPath = std::getenv("THE_FLOOR_MODEL_PATH");
-		if (modelPath == nullptr || modelPath[0] == '\0')
+		if (!std::filesystem::exists(kModelPath))
 		{
 			return -1;
 		}
-
-		const char* normPath = std::getenv("THE_FLOOR_MODEL_NORM_PATH");
+		const bool hasNormFile = std::filesystem::exists(kNormPath);
 
 		std::ostringstream stateBuilder;
 		for (int i = 0; i < FLAT_STATE_SIZE; ++i)
@@ -40,11 +43,11 @@ namespace
 
 		std::ostringstream commandBuilder;
 		commandBuilder << "printf '%s' '" << stateBuilder.str() << "'"
-			<< " | python TheFloor_NN/NN_Training/predict_action.py"
-			<< " --model \"" << modelPath << "\"";
-		if (normPath != nullptr && normPath[0] != '\0')
+			<< " | python \"" << kPredictScriptPath << "\""
+			<< " --model \"" << kModelPath << "\"";
+		if (hasNormFile)
 		{
-			commandBuilder << " --norm \"" << normPath << "\"";
+			commandBuilder << " --norm \"" << kNormPath << "\"";
 		}
 
 		commandBuilder
