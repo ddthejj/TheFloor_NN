@@ -2,11 +2,14 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
+#include <cstdint>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include <string>
+#include <thread>
 
 #ifdef _WIN32
 #define POPEN _popen
@@ -21,6 +24,8 @@ namespace
 	constexpr const char* kPredictScriptPath = "../NN_Training/predict_action.py";
 	constexpr const char* kModelPath = "model/floor_ai.keras";
 	constexpr const char* kNormPath = "model/floor_ai.norm.json";
+	constexpr const char* kRequestPath = "model/predict_request.txt";
+	constexpr const char* kResponsePath = "model/predict_response.txt";
 
 	bool FileExists(const char* filePath)
 	{
@@ -28,14 +33,8 @@ namespace
 		return file.good();
 	}
 
-	int PredictActionFromModel(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
+	std::string BuildFlatState(const std::array<float, FLAT_STATE_SIZE>& flatState)
 	{
-		if (!FileExists(kModelPath))
-		{
-			return -1;
-		}
-		const bool hasNormFile = FileExists(kNormPath);
-
 		std::ostringstream stateBuilder;
 		for (int i = 0; i < FLAT_STATE_SIZE; ++i)
 		{
@@ -47,34 +46,167 @@ namespace
 			stateBuilder << flatState[i];
 		}
 
-		std::ostringstream commandBuilder;
-		commandBuilder
-			<< "python \"" << kPredictScriptPath << "\""
-			<< " --model \"" << kModelPath << "\"";
-		if (hasNormFile)
+		return stateBuilder.str();
+	}
+
+	class PythonPredictServer
+	{
+	public:
+		static PythonPredictServer& Get()
 		{
-			commandBuilder << " --norm \"" << kNormPath << "\"";
+			static PythonPredictServer server;
+			return server;
 		}
 
-		commandBuilder
-			<< " --valid-count " << validNeighborCount
-			<< " --state \"" << stateBuilder.str() << "\"";
+		int Predict(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
+		{
+			if (!EnsureStarted())
+			{
+				return -1;
+			}
 
-		FILE* process = POPEN(commandBuilder.str().c_str(), "r");
-		if (process == nullptr)
+			++requestIdCounter;
+			const std::uint64_t requestId = requestIdCounter;
+
+			std::ofstream requestFile(kRequestPath, std::ios::trunc);
+			if (!requestFile.is_open())
+			{
+				return -1;
+			}
+
+			requestFile
+				<< requestId << "|"
+				<< validNeighborCount << "|"
+				<< BuildFlatState(flatState) << "\n";
+			requestFile.close();
+
+			const auto timeoutAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
+			while (std::chrono::steady_clock::now() < timeoutAt)
+			{
+				std::ifstream responseFile(kResponsePath);
+				if (responseFile.is_open())
+				{
+					std::string responseLine;
+					std::getline(responseFile, responseLine);
+					responseFile.close();
+
+					const std::size_t firstSep = responseLine.find('|');
+					if (firstSep != std::string::npos)
+					{
+						const std::uint64_t responseId = static_cast<std::uint64_t>(std::strtoull(responseLine.substr(0, firstSep).c_str(), nullptr, 10));
+						if (responseId == requestId)
+						{
+							return std::atoi(responseLine.substr(firstSep + 1).c_str());
+						}
+					}
+				}
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(2));
+			}
+
+			return -1;
+		}
+
+	private:
+		FILE* processHandle = nullptr;
+		std::uint64_t requestIdCounter = 0;
+		bool shutdownHookRegistered = false;
+
+		static void ShutdownAtExit()
+		{
+			PythonPredictServer::Get().Shutdown();
+		}
+
+		bool EnsureStarted()
+		{
+			if (processHandle != nullptr)
+			{
+				return true;
+			}
+
+			std::ofstream(kRequestPath, std::ios::trunc).close();
+			std::ofstream(kResponsePath, std::ios::trunc).close();
+
+			std::ostringstream commandBuilder;
+			commandBuilder
+				<< "python \"" << kPredictScriptPath << "\""
+				<< " --serve"
+				<< " --model \"" << kModelPath << "\""
+				<< " --request-file \"" << kRequestPath << "\""
+				<< " --response-file \"" << kResponsePath << "\"";
+
+			if (FileExists(kNormPath))
+			{
+				commandBuilder << " --norm \"" << kNormPath << "\"";
+			}
+
+#ifdef _WIN32
+			commandBuilder << " >NUL 2>&1";
+#else
+			commandBuilder << " >/dev/null 2>&1";
+#endif
+
+			processHandle = POPEN(commandBuilder.str().c_str(), "r");
+			if (processHandle == nullptr)
+			{
+				return false;
+			}
+
+			if (!shutdownHookRegistered)
+			{
+				std::atexit(&PythonPredictServer::ShutdownAtExit);
+				shutdownHookRegistered = true;
+			}
+
+			const auto timeoutAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(4000);
+			while (std::chrono::steady_clock::now() < timeoutAt)
+			{
+				std::ifstream responseFile(kResponsePath);
+				if (responseFile.is_open())
+				{
+					std::string line;
+					std::getline(responseFile, line);
+					responseFile.close();
+
+					if (line == "READY")
+					{
+						return true;
+					}
+				}
+
+				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+			}
+
+			Shutdown();
+			return false;
+		}
+
+		void Shutdown()
+		{
+			if (processHandle == nullptr)
+			{
+				return;
+			}
+
+			std::ofstream requestFile(kRequestPath, std::ios::trunc);
+			if (requestFile.is_open())
+			{
+				requestFile << "QUIT\n";
+			}
+
+			PCLOSE(processHandle);
+			processHandle = nullptr;
+		}
+	};
+
+	int PredictActionFromModel(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
+	{
+		if (!FileExists(kModelPath))
 		{
 			return -1;
 		}
 
-		char outputBuffer[64] = {};
-		if (std::fgets(outputBuffer, sizeof(outputBuffer), process) == nullptr)
-		{
-			PCLOSE(process);
-			return -1;
-		}
-
-		PCLOSE(process);
-		return std::atoi(outputBuffer);
+		return PythonPredictServer::Get().Predict(flatState, validNeighborCount);
 	}
 }
 
