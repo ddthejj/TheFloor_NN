@@ -22,22 +22,7 @@ Run many games first so the replay buffer has enough variety.
 
 ### Replay log location
 
-By default the C++ logger writes to `ml/replay_buffer.csv` relative to your current working directory.
-
-You can force an exact output path by setting env var `THE_FLOOR_REPLAY_PATH` before running the game:
-
-```bash
-# Linux/macOS
-export THE_FLOOR_REPLAY_PATH=/absolute/path/to/replay_buffer.csv
-```
-
-```powershell
-# Windows PowerShell
-$env:THE_FLOOR_REPLAY_PATH = "C:\path\to\replay_buffer.csv"
-```
-
-The logger now prints the full path it writes to on startup so you can confirm it immediately.
-
+The C++ logger writes to `ml/replay_buffer.csv` relative to your current working directory.
 
 ## 2) Train the neural net
 
@@ -100,13 +85,13 @@ Train with `NN_Training.py` so these are created under `model/`:
 
 ### Build configuration (Visual Studio)
 
-`Project1.vcxproj` is configured to read TensorFlow from `TENSORFLOW_ROOT`:
+`Project1.vcxproj` uses a fixed TensorFlow root under the solution directory:
 
-- headers: `$(TENSORFLOW_ROOT)\include`
-- libs: `$(TENSORFLOW_ROOT)\lib`
+- headers: `$(SolutionDir)third_party\tensorflow\include`
+- libs: `$(SolutionDir)third_party\tensorflow\lib`
 - linked library: `tensorflow.lib`
 
-At runtime, make sure `tensorflow.dll` is on your PATH (or next to the executable).
+At runtime, place `tensorflow.dll` next to the executable (or in a standard loader path).
 
 ### Action-selection behavior
 
