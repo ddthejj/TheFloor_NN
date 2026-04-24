@@ -48,8 +48,8 @@ namespace
 		}
 
 		std::ostringstream commandBuilder;
-		commandBuilder << "printf '%s' '" << stateBuilder.str() << "'"
-			<< " | python \"" << kPredictScriptPath << "\""
+		commandBuilder
+			<< "python \"" << kPredictScriptPath << "\""
 			<< " --model \"" << kModelPath << "\"";
 		if (hasNormFile)
 		{
@@ -57,7 +57,8 @@ namespace
 		}
 
 		commandBuilder
-			<< " --valid-count " << validNeighborCount;
+			<< " --valid-count " << validNeighborCount
+			<< " --state \"" << stateBuilder.str() << "\"";
 
 		FILE* process = POPEN(commandBuilder.str().c_str(), "r");
 		if (process == nullptr)
