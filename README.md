@@ -84,20 +84,34 @@ If you're new to NN/RL, start simple:
 
 ## 5) Let the trained model play the simulator
 
-The simulator can now query a trained model during `ChooseNeighbor()`.
+`ChooseNeighbor()` can call the Python predictor to pick the action instead of always choosing randomly.
 
-Set these environment variables before running the C++ simulator:
+### Important: current model paths are fixed in C++
 
-- `THE_FLOOR_MODEL_PATH`: path to the trained `.keras` model.
-- `THE_FLOOR_MODEL_NORM_PATH` *(optional but recommended)*: path to the normalization JSON (`.norm.json`) saved during training.
+The simulator currently **does not** read environment variables for model inference.  
+It uses these hard-coded relative paths from `TheFloor_NN/Project1/Tile.cpp`:
 
-Example:
+- Predictor script: `NN_Training/predict_action.py`
+- Model file: `NN_Training/artifacts/model.keras`
+- Normalization file: `NN_Training/artifacts/norm.json` *(optional; only used if present)*
 
-```bash
-export THE_FLOOR_MODEL_PATH=/absolute/path/to/model/floor_ai.keras
-export THE_FLOOR_MODEL_NORM_PATH=/absolute/path/to/model/floor_ai.norm.json
-```
+So, before running the simulator, make sure those files exist at exactly those locations relative to the process working directory.
 
-If only `THE_FLOOR_MODEL_PATH` is set, the simulator still uses model inference (with raw, unnormalized features).
+### What each file does
 
-If both variables are set, each move uses `TheFloor_NN/NN_Training/predict_action.py` with normalized features and chooses the best valid neighbor action. If prediction fails, the simulator falls back to random choice.
+- `model.keras`: trained Keras model that outputs one Q-value per possible action index (`0..49`).
+- `norm.json`: normalization statistics with:
+  - `feature_mean`: per-feature mean
+  - `feature_std`: per-feature std dev
+  If this file is missing, inference still runs on raw features.
+- `predict_action.py`: reads one flattened state from `stdin`, applies optional normalization, runs the model, and prints one integer action.
+
+### Action-selection behavior
+
+At decision time, the simulator:
+
+1. Flattens the current state to 250 features (`50 neighbors * 5 features`).
+2. Calls `predict_action.py --model ... [--norm ...] --valid-count N`.
+3. Restricts candidate actions to the first `N` outputs, where `N = current neighbor count`.
+4. Uses `argmax` over those valid actions.
+5. Falls back to random neighbor choice if prediction fails or returns an out-of-range index.
