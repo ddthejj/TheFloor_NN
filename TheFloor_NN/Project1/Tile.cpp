@@ -220,7 +220,66 @@ StayGoState Tile::GetStayGoState()
 {
 	StayGoState state;
 
-	
+	state.values.fill(0.0f);
+
+	MLState mlState = GetMLState();
+	const std::array<float, FLAT_STATE_SIZE> flatState = mlState.Flatten();
+
+	float challengeableCount = 0.0f;
+	float knownEnemySpeedCount = 0.0f;
+
+	for (int i = 0; i < MAX_NEIGHBORS; ++i)
+	{
+		const int baseIndex = i * FEATURES_PER_NEIGHBOR;
+		if (flatState[baseIndex] <= 0.0f)
+		{
+			continue;
+		}
+
+		if (flatState[baseIndex + 4] > 0.5f)
+		{
+			challengeableCount += 1.0f;
+		}
+
+		if (flatState[baseIndex + 1] > -9.5f)
+		{
+			knownEnemySpeedCount += 1.0f;
+		}
+	}
+
+	state.values[0] = static_cast<float>(neighbors.size());
+	state.values[1] = static_cast<float>(size);
+	state.values[2] = challengeableCount;
+	state.values[3] = knownEnemySpeedCount;
+	state.values[4] = flatState[0]; // first-neighbor power snapshot
+	state.values[5] = flatState[3]; // first-neighbor size snapshot
+	state.values[6] = static_cast<float>(player.GetSpeed());
+	state.values[7] = hasPlayed ? 1.0f : 0.0f;
 
 	return state;
+}
+
+bool Tile::IsNeuralNetLoaded()
+{
+	return FileExists(kModelPath);
+}
+
+bool Tile::ChooseStayOnFloor()
+{
+	if (!IsNeuralNetLoaded())
+	{
+		return false;
+	}
+
+	StayGoState stayGoState = GetStayGoState();
+	std::array<float, FLAT_STATE_SIZE> nnState{};
+	nnState.fill(0.0f);
+
+	for (int i = 0; i < STAYGO_STATE_SIZE; ++i)
+	{
+		nnState[i] = stayGoState.values[i];
+	}
+
+	const int action = PredictActionFromModel(nnState, 2);
+	return action == 1;
 }

@@ -127,8 +127,18 @@ void Floor::Step()
 	
 	// NEURAL NET OPTION
 	// back to the floor?
-	double newrandomValue = static_cast<double>(std::rand()) / RAND_MAX;
-	if (newrandomValue > .5)
+	bool stayAndPlay = false;
+	if (winnerTile->IsNeuralNetLoaded())
+	{
+		stayAndPlay = winnerTile->ChooseStayOnFloor();
+	}
+	else
+	{
+		double newrandomValue = static_cast<double>(std::rand()) / RAND_MAX;
+		stayAndPlay = newrandomValue > .5;
+	}
+
+	if (stayAndPlay)
 	{
 		currentPlayer = winnerTile;
 		std::cout << "STAY AND PLAY\n";

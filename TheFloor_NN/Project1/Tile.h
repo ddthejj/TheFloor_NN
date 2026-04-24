@@ -41,4 +41,6 @@ public:
 	bool HasPendingDecition() { return hasPendingDecision; }
 	void ResolveDecision(float reward, bool done);
 	StayGoState GetStayGoState();
+	bool IsNeuralNetLoaded();
+	bool ChooseStayOnFloor();
 };
