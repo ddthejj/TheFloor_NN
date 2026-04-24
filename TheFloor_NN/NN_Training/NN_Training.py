@@ -12,6 +12,7 @@ INPUT_SIZE = MAX_NEIGHBORS * FEATURES
 DEFAULT_DATA_PATH = Path("ml/replay_buffer.csv")
 DEFAULT_MODEL_PATH = Path("model/floor_ai.keras")
 DEFAULT_SAVED_MODEL_PATH = Path("model/floor_ai_savedmodel")
+DEFAULT_TFLITE_MODEL_PATH = Path("model/floor_ai.tflite")
 DEFAULT_NORM_PATH = Path("model/floor_ai.norm.json")
 
 
@@ -169,6 +170,12 @@ def parse_args():
         help="TensorFlow SavedModel directory for C++ inference",
     )
     parser.add_argument(
+        "--tflite-out",
+        type=Path,
+        default=DEFAULT_TFLITE_MODEL_PATH,
+        help="TensorFlow Lite model file used by C++ inference",
+    )
+    parser.add_argument(
         "--norm-out",
         type=Path,
         default=DEFAULT_NORM_PATH,
@@ -214,6 +221,12 @@ def main():
         shutil.rmtree(args.saved_model_out)
     tf.saved_model.save(model, str(args.saved_model_out))
     print(f"Saved TensorFlow SavedModel to {args.saved_model_out}")
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    tflite_model = converter.convert()
+    args.tflite_out.parent.mkdir(parents=True, exist_ok=True)
+    args.tflite_out.write_bytes(tflite_model)
+    print(f"Saved TensorFlow Lite model to {args.tflite_out}")
 
     stats_path = args.norm_out
     stats_path.parent.mkdir(parents=True, exist_ok=True)

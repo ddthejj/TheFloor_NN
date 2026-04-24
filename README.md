@@ -29,7 +29,7 @@ The C++ logger writes to `ml/replay_buffer.csv` relative to your current working
 From repo root:
 
 ```bash
-python TheFloor_NN/NN_Training/NN_Training.py --data ml/replay_buffer.csv --out model/floor_ai.keras --saved-model-out model/floor_ai_savedmodel --norm-out model/floor_ai.norm.json --epochs 20 --batch-size 256
+python TheFloor_NN/NN_Training/NN_Training.py --data ml/replay_buffer.csv --out model/floor_ai.keras --saved-model-out model/floor_ai_savedmodel --tflite-out model/floor_ai.tflite --norm-out model/floor_ai.norm.json --epochs 20 --batch-size 256
 ```
 
 The script performs offline DQN-style fitted Q updates with:
@@ -48,6 +48,7 @@ The script performs offline DQN-style fitted Q updates with:
 - `--val-split`: holdout ratio for validation
 - `--target-update`: soft target-network update factor (tau)
 - `--saved-model-out`: SavedModel directory consumed by the C++ runtime
+- `--tflite-out`: TensorFlow Lite model file consumed by the C++ runtime
 - `--norm-out`: normalization stats path consumed by the C++ runtime
 
 ## 3) Practical training advice
@@ -71,7 +72,7 @@ If you're new to NN/RL, start simple:
 
 ## 5) Let the trained model play the simulator (TensorFlow C++ runtime)
 
-The simulator now performs inference directly in C++ with the TensorFlow C API (no Python subprocess).
+The simulator now performs inference directly in C++ with the TensorFlow Lite runtime (no Python subprocess).
 
 > Note: training and replay-data loading are still handled in Python (`NN_Training.py`).
 > The C++ TensorFlow integration is for runtime inference inside the simulator only.
@@ -80,8 +81,9 @@ The simulator now performs inference directly in C++ with the TensorFlow C API (
 
 Train with `NN_Training.py` so these are created under `model/`:
 
-- `floor_ai_savedmodel/` (SavedModel directory used by C++)
+- `floor_ai.tflite` (TensorFlow Lite model file used by C++)
 - `floor_ai.norm.json` (normalization stats, optional but recommended)
+- `floor_ai_savedmodel/` (still exported for compatibility/tooling)
 
 ### Build configuration (Visual Studio)
 
@@ -89,16 +91,16 @@ Train with `NN_Training.py` so these are created under `model/`:
 
 - headers: `$(SolutionDir)third_party\tensorflow\include`
 - libs: `$(SolutionDir)third_party\tensorflow\lib`
-- linked library: `tensorflow.lib`
+- linked library: `tensorflowlite.lib`
 
-At runtime, place `tensorflow.dll` next to the executable (or in a standard loader path).
+At runtime, place `tensorflowlite.dll` next to the executable (or in a standard loader path).
 
 ### Action-selection behavior
 
 At decision time, the simulator:
 
 1. Flattens the current state to 250 features (`50 neighbors * 5 features`).
-2. Runs the SavedModel in-process via TensorFlow C API.
+2. Runs the TensorFlow Lite model in-process via TensorFlow Lite C++ runtime.
 3. Restricts candidate actions to the first `N` outputs, where `N = current neighbor count`.
 4. Uses `argmax` over those valid actions.
 5. Falls back to random neighbor choice if model loading/inference fails.

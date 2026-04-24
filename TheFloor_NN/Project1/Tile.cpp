@@ -2,26 +2,26 @@
 
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <cstdint>
-#include <cstring>
 #include <fstream>
-#include <iostream>
+#include <memory>
 #include <sstream>
 #include <string>
 #include <sys/stat.h>
 #include <vector>
 
 #if defined(__has_include)
-#if __has_include(<tensorflow/c/c_api.h>)
-#include <tensorflow/c/c_api.h>
-#define THE_FLOOR_HAS_TF_C_API 1
+#if __has_include(<tensorflow/lite/interpreter.h>) && __has_include(<tensorflow/lite/kernels/register.h>) && __has_include(<tensorflow/lite/model.h>)
+#include <tensorflow/lite/interpreter.h>
+#include <tensorflow/lite/kernels/register.h>
+#include <tensorflow/lite/model.h>
+#define THE_FLOOR_HAS_TFLITE 1
 #endif
 #endif
 
 namespace
 {
-	constexpr const char* kSavedModelPath = "model/floor_ai_savedmodel";
+	constexpr const char* kTFLiteModelPath = "model/floor_ai.tflite";
 	constexpr const char* kNormPath = "model/floor_ai.norm.json";
 
 	bool PathExists(const char* filePath)
@@ -71,19 +71,24 @@ namespace
 		return values;
 	}
 
-#ifdef THE_FLOOR_HAS_TF_C_API
-	class TensorFlowPredictor
+#ifdef THE_FLOOR_HAS_TFLITE
+	class TFLitePredictor
 	{
 	public:
-		static TensorFlowPredictor& Get()
+		static TFLitePredictor& Get()
 		{
-			static TensorFlowPredictor predictor;
+			static TFLitePredictor predictor;
 			return predictor;
 		}
 
 		int Predict(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
 		{
 			if (!EnsureLoaded())
+			{
+				return -1;
+			}
+
+			if (interpreter->inputs().empty() || interpreter->outputs().empty())
 			{
 				return -1;
 			}
@@ -97,42 +102,32 @@ namespace
 				}
 			}
 
-			const int64_t dims[2] = { 1, FLAT_STATE_SIZE };
-			TF_Tensor* inputTensor = TF_AllocateTensor(TF_FLOAT, dims, 2, sizeof(float) * FLAT_STATE_SIZE);
+			float* inputTensor = interpreter->typed_input_tensor<float>(0);
 			if (inputTensor == nullptr)
 			{
 				return -1;
 			}
 
-			std::memcpy(TF_TensorData(inputTensor), normalized.data(), sizeof(float) * FLAT_STATE_SIZE);
+			for (int i = 0; i < FLAT_STATE_SIZE; ++i)
+			{
+				inputTensor[i] = normalized[i];
+			}
 
-			TF_Output input{ inputOp, 0 };
-			TF_Output output{ outputOp, 0 };
-			TF_Tensor* outputTensor = nullptr;
-			TF_SessionRun(
-				session,
-				nullptr,
-				&input,
-				&inputTensor,
-				1,
-				&output,
-				&outputTensor,
-				1,
-				nullptr,
-				0,
-				nullptr,
-				status);
-
-			TF_DeleteTensor(inputTensor);
-
-			if (TF_GetCode(status) != TF_OK || outputTensor == nullptr)
+			if (interpreter->Invoke() != kTfLiteOk)
 			{
 				return -1;
 			}
 
-			const auto* qValues = static_cast<const float*>(TF_TensorData(outputTensor));
-			const std::int64_t count = TF_TensorByteSize(outputTensor) / static_cast<std::int64_t>(sizeof(float));
-			const int boundedCount = std::max(1, std::min(validNeighborCount, static_cast<int>(count)));
+			const float* qValues = interpreter->typed_output_tensor<float>(0);
+			if (qValues == nullptr)
+			{
+				return -1;
+			}
+
+			const int outputIndex = interpreter->outputs()[0];
+			const TfLiteTensor* outputTensor = interpreter->tensor(outputIndex);
+			const int count = outputTensor != nullptr ? (outputTensor->bytes / static_cast<int>(sizeof(float))) : 0;
+			const int boundedCount = std::max(1, std::min(validNeighborCount, count));
 
 			int bestIndex = 0;
 			float bestValue = qValues[0];
@@ -145,110 +140,49 @@ namespace
 				}
 			}
 
-			TF_DeleteTensor(outputTensor);
 			return bestIndex;
 		}
 
 		bool IsLoaded() const
 		{
-			return session != nullptr;
-		}
-
-		~TensorFlowPredictor()
-		{
-			if (session != nullptr)
-			{
-				TF_CloseSession(session, status);
-				TF_DeleteSession(session, status);
-			}
-
-			if (graph != nullptr)
-			{
-				TF_DeleteGraph(graph);
-			}
-
-			if (sessionOptions != nullptr)
-			{
-				TF_DeleteSessionOptions(sessionOptions);
-			}
-
-			if (status != nullptr)
-			{
-				TF_DeleteStatus(status);
-			}
+			return interpreter != nullptr;
 		}
 
 	private:
-		TF_Graph* graph = nullptr;
-		TF_Status* status = nullptr;
-		TF_SessionOptions* sessionOptions = nullptr;
-		TF_Session* session = nullptr;
-		TF_Operation* inputOp = nullptr;
-		TF_Operation* outputOp = nullptr;
+		std::unique_ptr<tflite::FlatBufferModel> model;
+		std::unique_ptr<tflite::Interpreter> interpreter;
 		std::vector<float> normMean;
 		std::vector<float> normStd;
 
-		TensorFlowPredictor() = default;
-
-		TF_Operation* FirstExistingOp(const std::vector<const char*>& names)
-		{
-			for (const char* name : names)
-			{
-				TF_Operation* op = TF_GraphOperationByName(graph, name);
-				if (op != nullptr)
-				{
-					return op;
-				}
-			}
-
-			return nullptr;
-		}
-
 		bool EnsureLoaded()
 		{
-			if (session != nullptr)
+			if (interpreter != nullptr)
 			{
 				return true;
 			}
 
-			if (!PathExists(kSavedModelPath))
+			if (!PathExists(kTFLiteModelPath))
 			{
 				return false;
 			}
 
-			graph = TF_NewGraph();
-			status = TF_NewStatus();
-			sessionOptions = TF_NewSessionOptions();
-			const char* tags = "serve";
-
-			session = TF_LoadSessionFromSavedModel(
-				sessionOptions,
-				nullptr,
-				kSavedModelPath,
-				&tags,
-				1,
-				graph,
-				nullptr,
-				status);
-
-			if (TF_GetCode(status) != TF_OK || session == nullptr)
+			model = tflite::FlatBufferModel::BuildFromFile(kTFLiteModelPath);
+			if (!model)
 			{
-				std::cerr << "[TensorFlowPredictor] Failed to load SavedModel from " << kSavedModelPath << "\n";
 				return false;
 			}
 
-			inputOp = FirstExistingOp({
-				"serving_default_keras_tensor",
-				"serving_default_input_1",
-				"serving_default_inputs",
-				"serving_default_dense_input",
-				"serving_default_input_layer"
-				});
-			outputOp = FirstExistingOp({ "StatefulPartitionedCall", "PartitionedCall", "Identity" });
-
-			if (inputOp == nullptr || outputOp == nullptr)
+			tflite::ops::builtin::BuiltinOpResolver resolver;
+			tflite::InterpreterBuilder builder(*model, resolver);
+			builder(&interpreter);
+			if (!interpreter)
 			{
-				std::cerr << "[TensorFlowPredictor] Could not resolve SavedModel input/output ops.\n";
+				return false;
+			}
+
+			if (interpreter->AllocateTensors() != kTfLiteOk)
+			{
+				interpreter.reset();
 				return false;
 			}
 
@@ -286,8 +220,8 @@ namespace
 
 	int PredictActionFromModel(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
 	{
-#ifdef THE_FLOOR_HAS_TF_C_API
-		return TensorFlowPredictor::Get().Predict(flatState, validNeighborCount);
+#ifdef THE_FLOOR_HAS_TFLITE
+		return TFLitePredictor::Get().Predict(flatState, validNeighborCount);
 #else
 		(void)flatState;
 		(void)validNeighborCount;
@@ -297,8 +231,8 @@ namespace
 
 	bool IsModelLoaded()
 	{
-#ifdef THE_FLOOR_HAS_TF_C_API
-		return TensorFlowPredictor::Get().IsLoaded() || PathExists(kSavedModelPath);
+#ifdef THE_FLOOR_HAS_TFLITE
+		return TFLitePredictor::Get().IsLoaded() || PathExists(kTFLiteModelPath);
 #else
 		return false;
 #endif
