@@ -17,7 +17,7 @@ namespace
 {
     std::string GetReplayPath()
     {
-        return "TheFloor_NN/ml/replay_buffer.csv";
+        return "ml/replay_buffer.csv";
     }
 
     std::string GetParentDirectory(const std::string& filePath)
