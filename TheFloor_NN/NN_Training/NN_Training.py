@@ -11,6 +11,9 @@ FEATURES = 5
 INPUT_SIZE = MAX_NEIGHBORS * FEATURES
 DEFAULT_DATA_PATH = Path("ml/replay_buffer.csv")
 DEFAULT_MODEL_PATH = Path("model/floor_ai.keras")
+DEFAULT_SAVED_MODEL_PATH = Path("model/floor_ai_savedmodel")
+DEFAULT_TFLITE_MODEL_PATH = Path("model/floor_ai.tflite")
+DEFAULT_NORM_PATH = Path("model/floor_ai.norm.json")
 
 
 def load_replay_buffer(csv_path: Path):
@@ -160,6 +163,24 @@ def parse_args():
     parser.add_argument("--gamma", type=float, default=0.99)
     parser.add_argument("--val-split", type=float, default=0.1)
     parser.add_argument("--target-update", type=float, default=0.05)
+    parser.add_argument(
+        "--saved-model-out",
+        type=Path,
+        default=DEFAULT_SAVED_MODEL_PATH,
+        help="TensorFlow SavedModel directory for C++ inference",
+    )
+    parser.add_argument(
+        "--tflite-out",
+        type=Path,
+        default=DEFAULT_TFLITE_MODEL_PATH,
+        help="TensorFlow Lite model file used by C++ inference",
+    )
+    parser.add_argument(
+        "--norm-out",
+        type=Path,
+        default=DEFAULT_NORM_PATH,
+        help="Normalization JSON path used by C++ inference",
+    )
     return parser.parse_args()
 
 
@@ -194,7 +215,21 @@ def main():
     model.save(args.out)
     print(f"Saved model to {args.out}")
 
-    stats_path = args.out.with_suffix(".norm.json")
+    if args.saved_model_out.exists():
+        import shutil
+
+        shutil.rmtree(args.saved_model_out)
+    tf.saved_model.save(model, str(args.saved_model_out))
+    print(f"Saved TensorFlow SavedModel to {args.saved_model_out}")
+
+    converter = tf.lite.TFLiteConverter.from_keras_model(model)
+    tflite_model = converter.convert()
+    args.tflite_out.parent.mkdir(parents=True, exist_ok=True)
+    args.tflite_out.write_bytes(tflite_model)
+    print(f"Saved TensorFlow Lite model to {args.tflite_out}")
+
+    stats_path = args.norm_out
+    stats_path.parent.mkdir(parents=True, exist_ok=True)
     stats_payload = {
         "input_size": INPUT_SIZE,
         "num_actions": MAX_NEIGHBORS,
