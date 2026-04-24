@@ -18,9 +18,9 @@
 
 namespace
 {
-	constexpr const char* kPredictScriptPath = "NN_Training/predict_action.py";
-	constexpr const char* kModelPath = "NN_Training/artifacts/model.keras";
-	constexpr const char* kNormPath = "NN_Training/artifacts/norm.json";
+	constexpr const char* kPredictScriptPath = "../NN_Training/predict_action.py";
+	constexpr const char* kModelPath = "model/floor_ai.keras";
+	constexpr const char* kNormPath = "model/floor_ai.norm.json";
 
 	bool FileExists(const char* filePath)
 	{

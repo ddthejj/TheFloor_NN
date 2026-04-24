@@ -3,7 +3,7 @@
 #include <cstdlib>
 #include <ctime>
 
-static constexpr int TEST_GAMES = 10000;
+static constexpr int TEST_GAMES = 1;
 
 int main(int argc, char* argv[])
 {
