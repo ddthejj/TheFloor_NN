@@ -23,13 +23,19 @@ def parse_args():
         required=True,
         help="Number of valid neighbor actions (action range is [0, valid-count))",
     )
+    parser.add_argument(
+        "--state",
+        type=str,
+        required=False,
+        help="Optional flattened state string. If omitted, state is read from stdin.",
+    )
     return parser.parse_args()
 
 
 def main():
     args = parse_args()
 
-    raw_state = sys.stdin.read().strip()
+    raw_state = args.state.strip() if args.state is not None else sys.stdin.read().strip()
     if not raw_state:
         raise ValueError("Expected flattened state values on stdin")
 
