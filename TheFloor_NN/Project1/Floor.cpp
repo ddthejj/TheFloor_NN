@@ -107,6 +107,7 @@ void Floor::Step()
 		attackerTile->WinBattle(true, defenderTile);
 		defenderTile->LoseBattle();
 		remainingTiles.erase(std::remove(remainingTiles.begin(), remainingTiles.end(), defenderTile), remainingTiles.end());
+		attackerWins++;
 	}
 	else
 	{
@@ -121,7 +122,8 @@ void Floor::Step()
 	validRandomizerTiles.erase(std::remove(validRandomizerTiles.begin(), validRandomizerTiles.end(), attackerTile), validRandomizerTiles.end());
 	validRandomizerTiles.erase(std::remove(validRandomizerTiles.begin(), validRandomizerTiles.end(), defenderTile), validRandomizerTiles.end());
 
-	std::cout << "Winner: " << winnerTile->GetPlayer()->GetOriginalCategory() << '\n';
+	std::cout << "Winner: " << winnerTile->GetPlayer()->GetOriginalCategory() << (attackerWon ? " (attacker)" : " (defender)") << '\n';
+	std::cout << "Current Attacker Win Rate: " << ((float)attackerWins / (float)(currentBattle + 1)) << '\n';
 	
 	// NEURAL NET OPTION
 	// back to the floor?

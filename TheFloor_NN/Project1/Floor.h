@@ -19,6 +19,7 @@ class Floor
 
 	Tile* currentPlayer;
 	int currentBattle = 0;
+	int attackerWins = 0;
 
 public:
 
