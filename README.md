@@ -44,7 +44,7 @@ The logger now prints the full path it writes to on startup so you can confirm i
 From repo root:
 
 ```bash
-python TheFloor_NN/NN_Training/NN_Training.py --data ml/replay_buffer.csv --out model/floor_ai.keras --epochs 20 --batch-size 256
+python TheFloor_NN/NN_Training/NN_Training.py --data ml/replay_buffer.csv --out model/floor_ai.keras --saved-model-out model/floor_ai_savedmodel --norm-out model/floor_ai.norm.json --epochs 20 --batch-size 256
 ```
 
 The script performs offline DQN-style fitted Q updates with:
@@ -62,6 +62,8 @@ The script performs offline DQN-style fitted Q updates with:
 - `--gamma`: discount factor
 - `--val-split`: holdout ratio for validation
 - `--target-update`: soft target-network update factor (tau)
+- `--saved-model-out`: SavedModel directory consumed by the C++ runtime
+- `--norm-out`: normalization stats path consumed by the C++ runtime
 
 ## 3) Practical training advice
 
@@ -82,36 +84,36 @@ If you're new to NN/RL, start simple:
 - Split a validation set from replay buffer and monitor validation loss.
 - Add a target network for more stable DQN training.
 
-## 5) Let the trained model play the simulator
+## 5) Let the trained model play the simulator (TensorFlow C++ runtime)
 
-`ChooseNeighbor()` can call the Python predictor to pick the action instead of always choosing randomly.
+The simulator now performs inference directly in C++ with the TensorFlow C API (no Python subprocess).
 
-### Important: current model paths are fixed in C++
+> Note: training and replay-data loading are still handled in Python (`NN_Training.py`).
+> The C++ TensorFlow integration is for runtime inference inside the simulator only.
 
-The simulator currently **does not** read environment variables for model inference.  
-It uses these hard-coded relative paths from `TheFloor_NN/Project1/Tile.cpp`:
+### Required runtime artifacts
 
-- Predictor script: `NN_Training/predict_action.py`
-- Model file: `NN_Training/artifacts/model.keras`
-- Normalization file: `NN_Training/artifacts/norm.json` *(optional; only used if present)*
+Train with `NN_Training.py` so these are created under `model/`:
 
-So, before running the simulator, make sure those files exist at exactly those locations relative to the process working directory.
+- `floor_ai_savedmodel/` (SavedModel directory used by C++)
+- `floor_ai.norm.json` (normalization stats, optional but recommended)
 
-### What each file does
+### Build configuration (Visual Studio)
 
-- `model.keras`: trained Keras model that outputs one Q-value per possible action index (`0..49`).
-- `norm.json`: normalization statistics with:
-  - `feature_mean`: per-feature mean
-  - `feature_std`: per-feature std dev
-  If this file is missing, inference still runs on raw features.
-- `predict_action.py`: reads one flattened state from `stdin`, applies optional normalization, runs the model, and prints one integer action.
+`Project1.vcxproj` is configured to read TensorFlow from `TENSORFLOW_ROOT`:
+
+- headers: `$(TENSORFLOW_ROOT)\include`
+- libs: `$(TENSORFLOW_ROOT)\lib`
+- linked library: `tensorflow.lib`
+
+At runtime, make sure `tensorflow.dll` is on your PATH (or next to the executable).
 
 ### Action-selection behavior
 
 At decision time, the simulator:
 
 1. Flattens the current state to 250 features (`50 neighbors * 5 features`).
-2. Calls `predict_action.py --model ... [--norm ...] --valid-count N`.
+2. Runs the SavedModel in-process via TensorFlow C API.
 3. Restricts candidate actions to the first `N` outputs, where `N = current neighbor count`.
 4. Uses `argmax` over those valid actions.
-5. Falls back to random neighbor choice if prediction fails or returns an out-of-range index.
+5. Falls back to random neighbor choice if model loading/inference fails.

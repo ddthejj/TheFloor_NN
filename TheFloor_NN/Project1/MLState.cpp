@@ -1,6 +1,7 @@
 #include "MLState.h"
 
 #include <cerrno>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <sstream>
@@ -17,6 +18,12 @@ namespace
 {
     std::string GetReplayPath()
     {
+        const char* envPath = std::getenv("THE_FLOOR_REPLAY_PATH");
+        if (envPath != nullptr && envPath[0] != '\0')
+        {
+            return envPath;
+        }
+
         return "ml/replay_buffer.csv";
     }
 

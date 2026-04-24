@@ -2,211 +2,306 @@
 
 #include <algorithm>
 #include <array>
-#include <chrono>
+#include <cctype>
 #include <cstdint>
-#include <cstdio>
-#include <cstdlib>
+#include <cstring>
 #include <fstream>
+#include <iostream>
 #include <sstream>
 #include <string>
-#include <thread>
+#include <sys/stat.h>
+#include <vector>
 
-#ifdef _WIN32
-#define POPEN _popen
-#define PCLOSE _pclose
-#else
-#define POPEN popen
-#define PCLOSE pclose
+#if defined(__has_include)
+#if __has_include(<tensorflow/c/c_api.h>)
+#include <tensorflow/c/c_api.h>
+#define THE_FLOOR_HAS_TF_C_API 1
+#endif
 #endif
 
 namespace
 {
-	constexpr const char* kPredictScriptPath = "../NN_Training/predict_action.py";
-	constexpr const char* kModelPath = "model/floor_ai.keras";
+	constexpr const char* kSavedModelPath = "model/floor_ai_savedmodel";
 	constexpr const char* kNormPath = "model/floor_ai.norm.json";
-	constexpr const char* kRequestPath = "model/predict_request.txt";
-	constexpr const char* kResponsePath = "model/predict_response.txt";
 
-	bool FileExists(const char* filePath)
+	bool PathExists(const char* filePath)
 	{
-		std::ifstream file(filePath);
-		return file.good();
+		struct stat info;
+		return stat(filePath, &info) == 0;
 	}
 
-	std::string BuildFlatState(const std::array<float, FLAT_STATE_SIZE>& flatState)
+	std::vector<float> ParseJsonArray(const std::string& content, const std::string& key)
 	{
-		std::ostringstream stateBuilder;
-		for (int i = 0; i < FLAT_STATE_SIZE; ++i)
+		std::vector<float> values;
+		const std::size_t keyPos = content.find("\"" + key + "\"");
+		if (keyPos == std::string::npos)
 		{
-			if (i > 0)
-			{
-				stateBuilder << ",";
-			}
-
-			stateBuilder << flatState[i];
+			return values;
 		}
 
-		return stateBuilder.str();
+		const std::size_t arrayStart = content.find('[', keyPos);
+		const std::size_t arrayEnd = content.find(']', arrayStart);
+		if (arrayStart == std::string::npos || arrayEnd == std::string::npos || arrayEnd <= arrayStart)
+		{
+			return values;
+		}
+
+		std::string payload = content.substr(arrayStart + 1, arrayEnd - arrayStart - 1);
+		for (char& ch : payload)
+		{
+			if (ch == '\n' || ch == '\r' || ch == '\t')
+			{
+				ch = ' ';
+			}
+		}
+
+		std::stringstream parser(payload);
+		std::string token;
+		while (std::getline(parser, token, ','))
+		{
+			std::stringstream numberParser(token);
+			float value = 0.0f;
+			numberParser >> value;
+			if (!numberParser.fail())
+			{
+				values.push_back(value);
+			}
+		}
+
+		return values;
 	}
 
-	class PythonPredictServer
+#ifdef THE_FLOOR_HAS_TF_C_API
+	class TensorFlowPredictor
 	{
 	public:
-		static PythonPredictServer& Get()
+		static TensorFlowPredictor& Get()
 		{
-			static PythonPredictServer server;
-			return server;
+			static TensorFlowPredictor predictor;
+			return predictor;
 		}
 
 		int Predict(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
 		{
-			if (!EnsureStarted())
+			if (!EnsureLoaded())
 			{
 				return -1;
 			}
 
-			++requestIdCounter;
-			const std::uint64_t requestId = requestIdCounter;
-
-			std::ofstream requestFile(kRequestPath, std::ios::trunc);
-			if (!requestFile.is_open())
+			std::array<float, FLAT_STATE_SIZE> normalized = flatState;
+			if (normMean.size() == FLAT_STATE_SIZE && normStd.size() == FLAT_STATE_SIZE)
 			{
-				return -1;
-			}
-
-			requestFile
-				<< requestId << "|"
-				<< validNeighborCount << "|"
-				<< BuildFlatState(flatState) << "\n";
-			requestFile.close();
-
-			const auto timeoutAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(1500);
-			while (std::chrono::steady_clock::now() < timeoutAt)
-			{
-				std::ifstream responseFile(kResponsePath);
-				if (responseFile.is_open())
+				for (int i = 0; i < FLAT_STATE_SIZE; ++i)
 				{
-					std::string responseLine;
-					std::getline(responseFile, responseLine);
-					responseFile.close();
-
-					const std::size_t firstSep = responseLine.find('|');
-					if (firstSep != std::string::npos)
-					{
-						const std::uint64_t responseId = static_cast<std::uint64_t>(std::strtoull(responseLine.substr(0, firstSep).c_str(), nullptr, 10));
-						if (responseId == requestId)
-						{
-							return std::atoi(responseLine.substr(firstSep + 1).c_str());
-						}
-					}
+					normalized[i] = (normalized[i] - normMean[i]) / normStd[i];
 				}
-
-				std::this_thread::sleep_for(std::chrono::milliseconds(2));
 			}
 
-			return -1;
+			const int64_t dims[2] = { 1, FLAT_STATE_SIZE };
+			TF_Tensor* inputTensor = TF_AllocateTensor(TF_FLOAT, dims, 2, sizeof(float) * FLAT_STATE_SIZE);
+			if (inputTensor == nullptr)
+			{
+				return -1;
+			}
+
+			std::memcpy(TF_TensorData(inputTensor), normalized.data(), sizeof(float) * FLAT_STATE_SIZE);
+
+			TF_Output input{ inputOp, 0 };
+			TF_Output output{ outputOp, 0 };
+			TF_Tensor* outputTensor = nullptr;
+			TF_SessionRun(
+				session,
+				nullptr,
+				&input,
+				&inputTensor,
+				1,
+				&output,
+				&outputTensor,
+				1,
+				nullptr,
+				0,
+				nullptr,
+				status);
+
+			TF_DeleteTensor(inputTensor);
+
+			if (TF_GetCode(status) != TF_OK || outputTensor == nullptr)
+			{
+				return -1;
+			}
+
+			const auto* qValues = static_cast<const float*>(TF_TensorData(outputTensor));
+			const std::int64_t count = TF_TensorByteSize(outputTensor) / static_cast<std::int64_t>(sizeof(float));
+			const int boundedCount = std::max(1, std::min(validNeighborCount, static_cast<int>(count)));
+
+			int bestIndex = 0;
+			float bestValue = qValues[0];
+			for (int i = 1; i < boundedCount; ++i)
+			{
+				if (qValues[i] > bestValue)
+				{
+					bestValue = qValues[i];
+					bestIndex = i;
+				}
+			}
+
+			TF_DeleteTensor(outputTensor);
+			return bestIndex;
+		}
+
+		bool IsLoaded() const
+		{
+			return session != nullptr;
+		}
+
+		~TensorFlowPredictor()
+		{
+			if (session != nullptr)
+			{
+				TF_CloseSession(session, status);
+				TF_DeleteSession(session, status);
+			}
+
+			if (graph != nullptr)
+			{
+				TF_DeleteGraph(graph);
+			}
+
+			if (sessionOptions != nullptr)
+			{
+				TF_DeleteSessionOptions(sessionOptions);
+			}
+
+			if (status != nullptr)
+			{
+				TF_DeleteStatus(status);
+			}
 		}
 
 	private:
-		FILE* processHandle = nullptr;
-		std::uint64_t requestIdCounter = 0;
-		bool shutdownHookRegistered = false;
+		TF_Graph* graph = nullptr;
+		TF_Status* status = nullptr;
+		TF_SessionOptions* sessionOptions = nullptr;
+		TF_Session* session = nullptr;
+		TF_Operation* inputOp = nullptr;
+		TF_Operation* outputOp = nullptr;
+		std::vector<float> normMean;
+		std::vector<float> normStd;
 
-		static void ShutdownAtExit()
+		TensorFlowPredictor() = default;
+
+		TF_Operation* FirstExistingOp(const std::vector<const char*>& names)
 		{
-			PythonPredictServer::Get().Shutdown();
+			for (const char* name : names)
+			{
+				TF_Operation* op = TF_GraphOperationByName(graph, name);
+				if (op != nullptr)
+				{
+					return op;
+				}
+			}
+
+			return nullptr;
 		}
 
-		bool EnsureStarted()
+		bool EnsureLoaded()
 		{
-			if (processHandle != nullptr)
+			if (session != nullptr)
 			{
 				return true;
 			}
 
-			std::ofstream(kRequestPath, std::ios::trunc).close();
-			std::ofstream(kResponsePath, std::ios::trunc).close();
-
-			std::ostringstream commandBuilder;
-			commandBuilder
-				<< "python \"" << kPredictScriptPath << "\""
-				<< " --serve"
-				<< " --model \"" << kModelPath << "\""
-				<< " --request-file \"" << kRequestPath << "\""
-				<< " --response-file \"" << kResponsePath << "\"";
-
-			if (FileExists(kNormPath))
-			{
-				commandBuilder << " --norm \"" << kNormPath << "\"";
-			}
-
-#ifdef _WIN32
-			commandBuilder << " >NUL 2>&1";
-#else
-			commandBuilder << " >/dev/null 2>&1";
-#endif
-
-			processHandle = POPEN(commandBuilder.str().c_str(), "r");
-			if (processHandle == nullptr)
+			if (!PathExists(kSavedModelPath))
 			{
 				return false;
 			}
 
-			if (!shutdownHookRegistered)
+			graph = TF_NewGraph();
+			status = TF_NewStatus();
+			sessionOptions = TF_NewSessionOptions();
+			const char* tags = "serve";
+
+			session = TF_LoadSessionFromSavedModel(
+				sessionOptions,
+				nullptr,
+				kSavedModelPath,
+				&tags,
+				1,
+				graph,
+				nullptr,
+				status);
+
+			if (TF_GetCode(status) != TF_OK || session == nullptr)
 			{
-				std::atexit(&PythonPredictServer::ShutdownAtExit);
-				shutdownHookRegistered = true;
+				std::cerr << "[TensorFlowPredictor] Failed to load SavedModel from " << kSavedModelPath << "\n";
+				return false;
 			}
 
-			const auto timeoutAt = std::chrono::steady_clock::now() + std::chrono::milliseconds(4000);
-			while (std::chrono::steady_clock::now() < timeoutAt)
+			inputOp = FirstExistingOp({
+				"serving_default_keras_tensor",
+				"serving_default_input_1",
+				"serving_default_inputs",
+				"serving_default_dense_input",
+				"serving_default_input_layer"
+				});
+			outputOp = FirstExistingOp({ "StatefulPartitionedCall", "PartitionedCall", "Identity" });
+
+			if (inputOp == nullptr || outputOp == nullptr)
 			{
-				std::ifstream responseFile(kResponsePath);
-				if (responseFile.is_open())
-				{
-					std::string line;
-					std::getline(responseFile, line);
-					responseFile.close();
-
-					if (line == "READY")
-					{
-						return true;
-					}
-				}
-
-				std::this_thread::sleep_for(std::chrono::milliseconds(5));
+				std::cerr << "[TensorFlowPredictor] Could not resolve SavedModel input/output ops.\n";
+				return false;
 			}
 
-			Shutdown();
-			return false;
+			LoadNormalization();
+			return true;
 		}
 
-		void Shutdown()
+		void LoadNormalization()
 		{
-			if (processHandle == nullptr)
+			if (!PathExists(kNormPath))
 			{
 				return;
 			}
 
-			std::ofstream requestFile(kRequestPath, std::ios::trunc);
-			if (requestFile.is_open())
+			std::ifstream normFile(kNormPath);
+			if (!normFile.is_open())
 			{
-				requestFile << "QUIT\n";
+				return;
 			}
 
-			PCLOSE(processHandle);
-			processHandle = nullptr;
+			std::stringstream buffer;
+			buffer << normFile.rdbuf();
+			const std::string content = buffer.str();
+			normMean = ParseJsonArray(content, "feature_mean");
+			normStd = ParseJsonArray(content, "feature_std");
+
+			if (normMean.size() != FLAT_STATE_SIZE || normStd.size() != FLAT_STATE_SIZE)
+			{
+				normMean.clear();
+				normStd.clear();
+			}
 		}
 	};
+#endif
 
 	int PredictActionFromModel(const std::array<float, FLAT_STATE_SIZE>& flatState, int validNeighborCount)
 	{
-		if (!FileExists(kModelPath))
-		{
-			return -1;
-		}
+#ifdef THE_FLOOR_HAS_TF_C_API
+		return TensorFlowPredictor::Get().Predict(flatState, validNeighborCount);
+#else
+		(void)flatState;
+		(void)validNeighborCount;
+		return -1;
+#endif
+	}
 
-		return PythonPredictServer::Get().Predict(flatState, validNeighborCount);
+	bool IsModelLoaded()
+	{
+#ifdef THE_FLOOR_HAS_TF_C_API
+		return TensorFlowPredictor::Get().IsLoaded() || PathExists(kSavedModelPath);
+#else
+		return false;
+#endif
 	}
 }
 
@@ -393,7 +488,7 @@ StayGoState Tile::GetStayGoState()
 
 bool Tile::IsNeuralNetLoaded()
 {
-	return FileExists(kModelPath);
+	return IsModelLoaded();
 }
 
 bool Tile::ChooseStayOnFloor()
